@@ -1,0 +1,27 @@
+// FOR THE ESP32
+
+#define CLK  18
+#define OE   19
+#define LAT 5
+#define A   34
+#define B   39
+#define C   36
+#define D   4
+//                                                                 R0  G0  B0  R1  G1  B1
+// in rgb panel library   static const uint8_t defaultrgbpins[] = {13, 12, 27, 33, 15, 32};
+
+
+
+
+
+// FOR THE UNO
+
+#define CLK  11
+#define OE   9
+#define LAT 10
+#define A   A0
+#define B   A1
+#define C   A2
+#define D   A3
+
+// in rgb panel library   static const uint8_t defaultrgbpins[] = {2, 3, 4, 5, 6, 7};
