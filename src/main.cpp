@@ -1,25 +1,8 @@
-// colorwheel demo for Adafruit RGBmatrixPanel library.
-// Renders a nice circle of hues on our 32x32 RGB LED matrix:
-// http://www.adafruit.com/products/607
-// 32x32 MATRICES DO NOT WORK WITH ARDUINO UNO or METRO 328.
-
-// Written by Limor Fried/Ladyada & Phil Burgess/PaintYourDragon
-// for Adafruit Industries.
-// BSD license, all text above must be included in any redistribution.
+// Main RGB Matrix Animation | Alex Mackimmie & Cole VanderGAMING | Last Updated 2024-09-18
 
 #include <RGBmatrixPanel.h>
 
-// Most of the signal pins are configurable, but the CLK pin has some
-// special constraints.  On 8-bit AVR boards it must be on PORTB...
-// Pin 11 works on the Arduino Mega.  On 32-bit SAMD boards it must be
-// on the same PORT as the RGB data pins (D2-D7)...
-// Pin 8 works on the Adafruit Metro M0 or Arduino Zero,
-// Pin A4 works on the Adafruit Metro M4 (if using the Adafruit RGB
-// Matrix Shield, cut trace between CLK pads and run a wire to A4).
-
-#define CLK 11   // USE THIS ON ADAFRUIT METRO M0, etc.
-//#define CLK A4 // USE THIS ON METRO M4 (not M0)
-//#define CLK 11 // USE THIS ON ARDUINO MEGA
+#define CLK 11
 #define OE   9
 #define LAT 10
 #define A   A0
@@ -29,41 +12,87 @@
 
 RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false);
 
+void startup();
+
 void setup() {
-  int      x, y, hue;
-  float    dx, dy, d;
-  uint8_t  sat, val;
-  uint16_t c;
 
   matrix.begin();
 
-  for(y=0; y < matrix.width(); y++) {
-    dy = 15.5 - (float)y;
-    for(x=0; x < matrix.height(); x++) {
-      dx = 15.5 - (float)x;
-      d  = dx * dx + dy * dy;
-      if(d <= (16.5 * 16.5)) { // Inside the circle(ish)?
-        hue = (int)((atan2(-dy, dx) + PI) * 1536.0 / (PI * 2.0));
-        d = sqrt(d);
-        if(d > 15.5) {
-          // Do a little pseudo anti-aliasing along perimeter
-          sat = 255;
-          val = (int)((1.0 - (d - 15.5)) * 255.0 + 0.5);
-        } else
-        {
-          // White at center
-          sat = (int)(d / 15.5 * 255.0 + 0.5);
-          val = 255;
-        }
-        c = matrix.ColorHSV(hue, sat, val, true);
-      } else {
-        c = 0;
-      }
-      matrix.drawPixel(x, y, c);
-    }
-  }
+  startup();
+
 }
 
 void loop() {
-  // Do nothing -- image doesn't change
+  // THE DISC THE DISC THE DISC THE DISC
+
+  // Moving DOWN
+  for(int row=0; row<30; row++){
+    matrix.fillRect(0, row, 32, 4, matrix.Color333(0, 7, 0));
+    //delay(500);
+    matrix.fillRect(0, row, 32, 1, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
+
+  // MOVING UP
+  for(int row=30; row>0; row--){
+    matrix.fillRect(0, row, 32, 4, matrix.Color333(0, 7, 0));
+    //delay(500);
+    matrix.fillRect(0, row+3, 32, 1, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
+}
+
+// Startup ANIMATION!
+void startup() {
+
+  // Fill the screen with 'black'
+  matrix.fillScreen(matrix.Color333(0, 0, 0));
+
+  // Draw some text!
+  matrix.setCursor(4, 8);    // start at top left, with one pixel of spacing
+  matrix.setTextSize(1);     // size 1 == 8 pixels high
+  matrix.setTextWrap(true); // Don't wrap at end of line - will do ourselves
+
+  matrix.println("OOP!"); // print the letters A, C, A, I, A, C, A, I, A, C
+  delay(1000);
+
+  matrix.fillScreen(matrix.Color333(0, 0, 0));  // fill the screen with 'black'
+  matrix.setCursor(1, 0);    // start at top left, with one pixel of spacing
+
+  // Print the letters A, C, A, I
+
+  for (int i = 0; i < 2; i++){
+    // Print each letter with a rainbow color
+    matrix.setTextColor(matrix.Color333(7,0,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,4,0));
+    matrix.print('C');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,7,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(4,7,0));
+    matrix.print('I');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,7,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,7,7));
+    matrix.print('C');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,4,7));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,0,7));
+    matrix.print('I');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(4,0,7));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,0,4));
+    matrix.print('C');
+    delay(100);
+  }
+
 }
