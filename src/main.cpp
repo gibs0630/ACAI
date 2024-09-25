@@ -19,6 +19,7 @@ RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false);
 void startup();
 void discBounce();
 void circleBounce();
+void rainbowAnimation();
 
 // Code to run on startup of the system
 void setup() {
@@ -33,7 +34,9 @@ void setup() {
 void loop() {
   // Time for some animations!
   // Bounce the disc
-  discBounce();
+  //discBounce();
+  //circleBounce();
+  rainbowAnimation();
 
 }
 
@@ -132,4 +135,31 @@ void circleBounce(){
     matrix.drawCircle(15, row, 5, matrix.Color333(0, 0, 0));
     //delay(500);
   }
+}
+
+void rainbowAnimation() {
+    for (int i = 0; i < 256; i++) {
+        // Calculate color components using sine wave for smooth transition
+        uint8_t red = (sin(i * 0.1) * 127 + 128) / 32;
+        uint8_t green = (sin(i * 0.1 + 2) * 127 + 128) / 32;
+        uint8_t blue = (sin(i * 0.1 + 4) * 127 + 128) / 32;
+
+        // Set text color
+        matrix.setTextColor(matrix.Color333(red, green, blue));
+
+        // Clear the display
+        matrix.fillScreen(matrix.Color333(0, 0, 0));
+
+        // Print a moving pattern
+        for (int x = 0; x < 32; x++) {
+            for (int y = 0; y < 32; y++) {
+                if ((x + y + i) % 2 == 0) {
+                    matrix.drawPixel(x, y, matrix.Color333(red, green, blue));
+                }
+            }
+        }
+
+        // Delay to create animation effect
+        delay(50);
+    }
 }
