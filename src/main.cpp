@@ -34,9 +34,14 @@ void setup() {
 void loop() {
   // Time for some animations!
   // Bounce the disc
-  //discBounce();
-  //circleBounce();
-  rainbowAnimation();
+  for (int i = 0; i < 7; i++) {
+    discBounce();
+  }
+  matrix.fillScreen(matrix.Color333(0, 0, 0));  // fill the screen with 'black'
+  for (int i = 0; i < 10; i++) {
+    circleBounce();
+  }
+  //rainbowAnimation();
 
 }
 
