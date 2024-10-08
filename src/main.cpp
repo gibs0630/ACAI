@@ -106,17 +106,17 @@ void discBounce(){
 
   // MOVNG DOWN
   for(int row=0; row<27; row++){
-    matrix.fillRect(0, row, 31, 5, matrix.Color333(7, 0, 7));
+    matrix.fillRect(0, row, 32, 5, matrix.Color333(7, 0, 7));
     //delay(500);
-    matrix.fillRect(0, row, 31, 1, matrix.Color333(0, 0, 0));
+    matrix.fillRect(0, row, 32, 1, matrix.Color333(0, 0, 0));
     //delay(500);
   }
 
   // MOVING UP
   for(int row=27; row>0; row--){
-    matrix.fillRect(0, row, 31, 5, matrix.Color333(7, 0, 7));
+    matrix.fillRect(0, row, 32, 5, matrix.Color333(7, 0, 7));
     //delay(500);
-    matrix.fillRect(0, row+4, 31, 1, matrix.Color333(0, 0, 0));
+    matrix.fillRect(0, row+4, 32, 1, matrix.Color333(0, 0, 0));
     //delay(500);
   }
 }

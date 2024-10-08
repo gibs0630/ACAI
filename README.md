@@ -22,6 +22,7 @@ To get started with this project, follow these steps:
     ```sh
     pip install platformio
     ```
+    Or install the PlatformIO Visual Studio Code Extension (Recommended)
 
 ## Usage
 
@@ -32,7 +33,9 @@ To run the project on the Arduino Uno, follow these steps:
     ```sh
     pio run --target upload
     ```
-3. Make sure to follow the hardware setup instructions provided in the documentation.
+    Or use Visual Studio Code extension to call the upload function
+   
+4. Make sure to follow the hardware setup instructions provided in the documentation.
 
 Using the Visual Studio Code extension for PlatformIO is highly recommended
 
