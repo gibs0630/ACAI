@@ -2,6 +2,8 @@
 
 // Include the RGB Matrix Panel Library
 #include <RGBmatrixPanel.h>
+#include <WiFiNINA.h>
+#include <SPI.h>
 
 // Define the RGB Matrix Panel Pins
 #define CLK 11
@@ -21,28 +23,105 @@ void discBounce();
 void circleBounce();
 void rainbowAnimation();
 
+// Replace with your network credentials
+const char* ssid = "your_SSID";
+const char* password = "your_PASSWORD";
+int keyIndex = 0; // your network key index
+int status = WL_IDLE_STATUS; // the WiFi status
+
+// Create a WiFi server on port 80
+WiFiServer server(80);
+
+// Global variables
+String header;
+String currentFunction = "none";
+
 // Code to run on startup of the system
 void setup() {
+  Serial.begin(9600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+
+  // Connect to Wi-Fi
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Start the server
+  server.begin();
 
   matrix.begin();
-
   startup();
-
 }
 
-// Code to run in a loop once startup has included
 void loop() {
-  // Time for some animations!
-  // Bounce the disc
-  for (int i = 0; i < 7; i++) {
-    discBounce();
-  }
-  matrix.fillScreen(matrix.Color333(0, 0, 0));  // fill the screen with 'black'
-  for (int i = 0; i < 10; i++) {
-    circleBounce();
-  }
-  //rainbowAnimation();
+  WiFiClient client = server.available();   // Listen for incoming clients
 
+  if (client) {                             // If a new client connects,
+    Serial.println("New Client.");          // print a message out in the serial port
+    String currentLine = "";                // make a String to hold incoming data from the client
+    while (client.connected()) {            // loop while the client's connected
+      if (client.available()) {             // if there's bytes to read from the client,
+        char c = client.read();             // read a byte, then
+        Serial.write(c);                    // print it out the serial monitor
+        header += c;
+        if (c == '\n') {                    // if the byte is a newline character
+          if (currentLine.length() == 0) {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println();
+
+            // Display the HTML web page
+            client.println("<!DOCTYPE html><html>");
+            client.println("<head><title>Control Panel</title></head>");
+            client.println("<body><h1>Control Panel</h1>");
+            client.println("<button onclick=\"location.href='/discBounce'\" type='button'>Disc Bounce</button>");
+            client.println("<button onclick=\"location.href='/circleBounce'\" type='button'>Circle Bounce</button>");
+            client.println("<button onclick=\"location.href='/stop'\" type='button'>Stop</button>");
+            client.println("</body></html>");
+
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+
+        if (header.indexOf("GET /discBounce") >= 0) {
+          currentFunction = "discBounce";
+        } else if (header.indexOf("GET /circleBounce") >= 0) {
+          currentFunction = "circleBounce";
+        } else if (header.indexOf("GET /stop") >= 0) {
+          currentFunction = "stop";
+        }
+      }
+    }
+    header = "";
+    client.stop();
+    Serial.println("Client disconnected.");
+    Serial.println("");
+  }
+
+  if (currentFunction == "discBounce") {
+    discBounce();
+  } else if (currentFunction == "circleBounce") {
+    circleBounce();
+  } else if (currentFunction == "stop") {
+    matrix.fillScreen(matrix.Color333(0, 0, 0));  // fill the screen with 'black'
+  }
 }
 
 // Startup ANIMATION!
