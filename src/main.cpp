@@ -1,8 +1,27 @@
-// Main RGB Matrix Animation | Ian Made This! | Last Updated 11-12-2024
+// Main RGB Matrix Animation | Alex Mackimmie, Cole Vanderlaan, Ian Finnigan | Last Updated 11-13-2024
+
+/*| ===================================================================================================
+  | This code is the main driver for our project. It creates a web server connection that allows
+  | the user to control the RGB matrix panel through a web interface. The user can select from a
+  | variety of animations to display on the panel. The program also includes a few animations that
+  | can be run without the web interface. The program is designed to be run on an Adafruit Metro M4
+  | Airlift Lite board with a 32x32 RGB matrix panel availible on sparkfruit. The backup folder of this
+  | project contains the original code that was run on an Arduino Uno without wifi capabilties.
+  | ===================================================================================================
+  |               _      ___    _     _____ 
+  |              /_\    / __\  /_\    \_   \
+  |             //_\\  / /    //_\\    / /\/
+  |            /  _  \/ /___ /  _  \/\/ /_   - Alex Mackimmie, Cole Vanderlaan, Andrew Gibson, Ian Finnigan
+  |            \_/ \_/\____/ \_/ \_/\____/   - Last Updated 11-13-2024
+  |
+  | ===================================================================================================
+*/
 
 // Include the RGB Matrix Panel Library
 #include <RGBmatrixPanel.h>
-//#include "frames.h"
+#include <WiFiNINA.h>
+#include <SPI.h>
+#include "frames.h"
 
 // Define the RGB Matrix Panel Pins
 #define CLK A4
@@ -13,1061 +32,436 @@
 #define C   A2
 #define D   A3
 
-//using namespace N;
-
 // RGB Matrix Panel Global Variable
 RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false);
 
+// Function Prototypes
+void discBounce();
+void circleBounce();
+void discBounceStep();
+void circleBounceStep();
+void cubeUpdate();
 void startup();
-// void f3Init();
-void cube();
-void frame0();
-void frame1();
-void frame2();
-void frame3();
-void frame4();
-void frame5();
-void frame6();
-void frame7();
-void frame8();
-void frame9();
-void frame10();
-void frame11();
-void frame12();
-void frame13();
-void frame14();
-void frame15();
-void frame16();
-void frame17();
-void frame18();
-void frame19();
-void frame20();
 
-const int fd = 20; //1 ms between frame
+// Define buffer sizes
+#define HEADER_BUFFER_SIZE 512
+#define LINE_BUFFER_SIZE 128
+#define STATUS_BUFFER_SIZE 64
 
+// Replace with your network credentials
+const char* ssid = "Alex's iPhone";
+const char* password = "gooberville";
+int keyIndex = 0; // your network key index
+int status = WL_IDLE_STATUS; // the WiFi status
+
+// Create a WiFi server on port 80
+WiFiServer server(80);
+
+// Global variables
+char header[HEADER_BUFFER_SIZE] = {0};
+char currentLine[LINE_BUFFER_SIZE] = {0};
+char statusMessage[STATUS_BUFFER_SIZE] = "Ready";
+char currentFunction[16] = "none";
+
+// Indices for buffers
+int headerIndex = 0;
+int currentLineIndex = 0;
+
+// Create the client
+WiFiClient client;
+
+// Variables for non-blocking animations
+unsigned long previousAnimationTime = 0;
+const long animationInterval = 20; // Adjust as needed
+int currentFrame = 0;
 
 // Code to run on startup of the system
 void setup() {
+  Serial.begin(9600);
+  //while (!Serial) {
+  //  ; // wait for serial port to connect. Needed for native USB port only
+  //}
+
+  // Connect to Wi-Fi
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Start the server
+  server.begin();
 
   matrix.begin();
-  //startup();
-
-  //f3Init();
-
+  startup();
 }
 
-// Code to run in a loop once startup has included
+// MAIN PROGRAM LOOP
 void loop() {
+  // Handle Wi-Fi reconnection
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(F("WiFi disconnected. Attempting reconnection..."));
+    WiFi.begin(ssid, password);
+    delay(1000); // Small delay to allow reconnection
+    return; // Skip rest of loop to allow reconnection
+  }
 
-  cube();
+  // Non-blocking client handling
+  WiFiClient client = server.available();
+
+  if (client) {
+    Serial.println(F("New Client."));
+    memset(header, 0, HEADER_BUFFER_SIZE);
+    headerIndex = 0;
+    memset(currentLine, 0, LINE_BUFFER_SIZE);
+    currentLineIndex = 0;
+
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+
+        // Store header with bounds checking
+        if (headerIndex < HEADER_BUFFER_SIZE - 1) {
+          header[headerIndex++] = c;
+          header[headerIndex] = '\0';
+        }
+
+        // Handle end of line
+        if (c == '\n') {
+          if (currentLineIndex == 0) {
+            // Check for specific GET requests
+            if (strncmp(header, "GET /status", 11) == 0) {
+              // Serve the status message
+              client.println(F("HTTP/1.1 200 OK"));
+              client.println(F("Content-Type: text/plain"));
+              client.println(F("Connection: close"));
+              client.println();
+              client.print(statusMessage);
+            } else {
+              // Send HTTP response
+              client.println(F("HTTP/1.1 200 OK"));
+              client.println(F("Content-type:text/html"));
+              client.println(F("Connection: close"));
+              client.println();
+
+              // Display the improved HTML web page using F() macro
+              client.println(F("<!DOCTYPE html><html>"));
+              client.println(F("<head>"));
+              client.println(F("<title>Control Panel</title>"));
+              client.println(F("<style>"));
+              client.println(F("body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; }"));
+              client.println(F("h1 { color: #333; }"));
+              client.println(F(".button {"));
+              client.println(F("  display: inline-block;"));
+              client.println(F("  padding: 15px 30px;"));
+              client.println(F("  margin: 10px;"));
+              client.println(F("  font-size: 18px;"));
+              client.println(F("  color: #fff;"));
+              client.println(F("  background-color: #007BFF;"));
+              client.println(F("  border: none;"));
+              client.println(F("  border-radius: 5px;"));
+              client.println(F("  cursor: pointer;"));
+              client.println(F("}"));
+              client.println(F(".button:hover { background-color: #0056b3; }"));
+              client.println(F("#terminal {"));
+              client.println(F("  width: 80%;"));
+              client.println(F("  height: 150px;"));
+              client.println(F("  margin: 20px auto;"));
+              client.println(F("  padding: 10px;"));
+              client.println(F("  background-color: #000;"));
+              client.println(F("  color: #0f0;"));
+              client.println(F("  font-family: monospace;"));
+              client.println(F("  overflow-y: scroll;"));
+              client.println(F("  border-radius: 5px;"));
+              client.println(F("}"));
+              client.println(F("</style>"));
+              client.println(F("</head>"));
+              client.println(F("<body>"));
+              client.println(F("<h1>Control Panel</h1>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/discBounce'\">Disc Bounce</button>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/circleBounce'\">Circle Bounce</button>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/cubeUpdate'\">Cube Update</button>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/stop'\">Stop</button>"));
+              client.println(F("<div id=\"terminal\"></div>"));
+              client.println(F("<script>"));
+              client.println(F("setInterval(function() {"));
+              client.println(F("  fetch('/status')"));
+              client.println(F("    .then(response => response.text())"));
+              client.println(F("    .then(data => {"));
+              client.println(F("      document.getElementById('terminal').innerText = data;"));
+              client.println(F("    });"));
+              client.println(F("}, 1000);"));
+              client.println(F("</script>"));
+              client.println(F("</body></html>"));
+              client.println();
+            }
+            break;
+          } else {
+            // Clear current line
+            memset(currentLine, 0, LINE_BUFFER_SIZE);
+            currentLineIndex = 0;
+          }
+        } else if (c != '\r') {
+          // Store current line with bounds checking
+          if (currentLineIndex < LINE_BUFFER_SIZE - 1) {
+            currentLine[currentLineIndex++] = c;
+            currentLine[currentLineIndex] = '\0';
+          }
+        }
+
+        // Check for GET requests in header
+        if (strstr(header, "GET /discBounce") != NULL) {
+          strncpy(currentFunction, "discBounce", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Running discBounce animation", STATUS_BUFFER_SIZE - 1);
+        } else if (strstr(header, "GET /circleBounce") != NULL) {
+          strncpy(currentFunction, "circleBounce", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Running circleBounce animation", STATUS_BUFFER_SIZE - 1);
+        } else if (strstr(header, "GET /cubeUpdate") != NULL) {
+          strncpy(currentFunction, "cubeUpdate", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Running cubeUpdate animation", STATUS_BUFFER_SIZE - 1);
+        } else if (strstr(header, "GET /stop") != NULL) {
+          strncpy(currentFunction, "stop", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Stopped animations", STATUS_BUFFER_SIZE - 1);
+        }
+      }
+    }
+    client.stop();
+    Serial.println(F("Client disconnected."));
+    Serial.println();
+  }
+
+  if (millis() - previousAnimationTime >= animationInterval) {
+    previousAnimationTime = millis();
+    if (strcmp(currentFunction, "discBounce") == 0) {
+      discBounceStep();
+    } else if (strcmp(currentFunction, "circleBounce") == 0) {
+      circleBounceStep();
+    } else if (strcmp(currentFunction, "cubeUpdate") == 0) {
+      cubeUpdate();
+    } else if (strcmp(currentFunction, "stop") == 0) {
+      matrix.fillScreen(matrix.Color333(0, 0, 0)); // Clear screen
+    }
+  }
 }
 
-void cube(){
-  frame0();
-  delay(fd);
-  frame1();
-  delay(fd);
-  frame2();
-  delay(fd);
-  frame3();
-  delay(fd);
-  frame4();
-  delay(fd);
-  frame5();
-  delay(fd);
-  frame6();
-  delay(fd);
-  frame7();
-  delay(fd);
-  frame8();
-  delay(fd);
-  frame9();
-  delay(fd);
-  frame10();
-  delay(fd);
-  frame11();
-  delay(fd);
-  frame12();
-  delay(fd);
-  frame13();
-  delay(fd);
-  frame14();
-  delay(fd);
-  frame15();
-  delay(fd);
-  frame16();
-  delay(fd);
-  frame17();
-  delay(fd);
-  frame18();
-  delay(fd);
-  frame19();
-  delay(fd);
-  frame20();
-  delay(fd);
+// Startup Animation
+void startup() {
+
+  // Fill the screen with 'black'
+  matrix.fillScreen(matrix.Color333(0, 0, 0));
+
+  // Draw some text!
+  matrix.setCursor(4, 8);    // start at top left, with one pixel of spacing
+  matrix.setTextSize(1);     // size 1 == 8 pixels high
+  matrix.setTextWrap(true); // Wrap at end of line
+
+  matrix.println("OOP!"); // print the letters A, C, A, I, A, C, A, I, A, C
+  delay(1000);
+
+  matrix.fillScreen(matrix.Color333(0, 0, 0));  // fill the screen with 'black'
+  matrix.setCursor(1, 0);    // start at top left, with one pixel of spacing
+
+  // Print the letters A, C, A, I
+
+  for (int i = 0; i < 2; i++){
+    // Print each letter with a rainbow color
+    matrix.setTextColor(matrix.Color333(7,0,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,4,0));
+    matrix.print('C');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,7,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(4,7,0));
+    matrix.print('I');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,7,0));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,7,7));
+    matrix.print('C');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,4,7));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(0,0,7));
+    matrix.print('I');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(4,0,7));
+    matrix.print('A');
+    delay(100);
+    matrix.setTextColor(matrix.Color333(7,0,4));
+    matrix.print('C');
+    delay(100);
+  }
+  matrix.fillScreen(matrix.Color333(0, 0, 0));
 }
 
-void frame0(){
-matrix.drawPixel(0, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 4, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(27, 5, matrix.Color888(168,59,44));
-matrix.drawPixel(28, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 5, matrix.Color888(169,60,45));
-matrix.drawPixel(30, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(5, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(27, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 6, matrix.Color888(169,61,45));
-matrix.drawPixel(31, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 7, matrix.Color888(169,60,45));
-matrix.drawPixel(1, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(3, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(4, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(27, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(28, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 8, matrix.Color888(168,59,43));
-matrix.drawPixel(30, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 9, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 9, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 10, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 10, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 11, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 11, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 11, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 12, matrix.Color888(169,60,45));
-matrix.drawPixel(1, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 12, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 12, matrix.Color888(168,59,43));
-matrix.drawPixel(29, 12, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 13, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 13, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 13, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 13, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 14, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 14, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 14, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 14, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 15, matrix.Color888(169,60,45));
-matrix.drawPixel(2, 15, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 15, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 16, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 16, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 16, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 17, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 17, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 17, matrix.Color888(168,59,44));
-matrix.drawPixel(31, 17, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 18, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 18, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 19, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 19, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 20, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 20, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 20, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 20, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 20, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 21, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 21, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 21, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 21, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 21, matrix.Color888(169,61,45));
-matrix.drawPixel(29, 21, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 21, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 21, matrix.Color888(169,61,45));
-matrix.drawPixel(0, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 22, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 22, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(4, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(27, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 24, matrix.Color888(169,61,45));
-matrix.drawPixel(3, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(4, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(27, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 25, matrix.Color888(169,60,45));
-matrix.drawPixel(27, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 25, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 25, matrix.Color888(169,61,45));
-matrix.drawPixel(0, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(29, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 26, matrix.Color888(169,61,45));
+// Bounce the disc - Deprecated with web server implementation
+void discBounce(){
+  // THE DISC THE DISC THE DISC THE DISC
+
+  // MOVNG DOWN
+  for(int row=0; row<27; row++){
+    matrix.fillRect(0, row, 32, 5, matrix.Color333(7, 0, 7));
+    //delay(500);
+    matrix.fillRect(0, row, 32, 1, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
+
+  // MOVING UP
+  for(int row=27; row>0; row--){
+    matrix.fillRect(0, row, 32, 5, matrix.Color333(7, 0, 7));
+    //delay(500);
+    matrix.fillRect(0, row+4, 32, 1, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
 }
 
-void frame1(){
-matrix.drawPixel(3, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(27, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(6, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(25, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(6, 6, matrix.Color888(11,73,192));
-matrix.drawPixel(25, 6, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(5, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 8, matrix.Color888(2,2,2));
-matrix.drawPixel(0, 9, matrix.Color888(4,4,4));
-matrix.drawPixel(1, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 9, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 10, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 11, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 12, matrix.Color888(11,73,192));
-matrix.drawPixel(30, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 13, matrix.Color888(4,4,4));
-matrix.drawPixel(1, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 13, matrix.Color888(12,73,192));
-matrix.drawPixel(30, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 14, matrix.Color888(12,74,193));
-matrix.drawPixel(30, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 15, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 16, matrix.Color888(12,74,193));
-matrix.drawPixel(30, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 17, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 17, matrix.Color888(2,2,2));
-matrix.drawPixel(31, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 18, matrix.Color888(4,4,4));
-matrix.drawPixel(1, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 21, matrix.Color888(13,74,193));
-matrix.drawPixel(30, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 21, matrix.Color888(4,4,4));
-matrix.drawPixel(0, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 22, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 22, matrix.Color888(169,60,45));
-matrix.drawPixel(27, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(30, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 24, matrix.Color888(12,73,193));
-matrix.drawPixel(6, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(25, 24, matrix.Color888(168,59,44));
-matrix.drawPixel(31, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(25, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 25, matrix.Color888(4,4,4));
-matrix.drawPixel(0, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(1, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(29, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 26, matrix.Color888(13,74,193));
+// Bounce the sphere - Depricated with web server implementation
+void circleBounce(){
+  // THE SPHERE THE SPHERE THE SPHERE
+
+  // MOVNG DOWN
+  for(int row=0; row<30; row++){
+    matrix.fillCircle(15, row, 5, matrix.Color333(0, 7, 0));
+    //delay(500);
+    matrix.drawCircle(15, row, 5, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
+
+  // MOVING UP
+  for(int row=30; row>0; row--){
+    matrix.fillCircle(15, row, 5, matrix.Color333(0, 7, 0));
+    //delay(500);
+    matrix.drawCircle(15, row, 5, matrix.Color333(0, 0, 0));
+    //delay(500);
+  }
 }
 
-void frame2(){
-matrix.drawPixel(0, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(4, 4, matrix.Color888(168,60,44));
-matrix.drawPixel(27, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(6, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(6, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(25, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 7, matrix.Color888(13,74,193));
-matrix.drawPixel(5, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(4, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(27, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 8, matrix.Color888(2,2,2));
-matrix.drawPixel(2, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 9, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 10, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 11, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 12, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 12, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 12, matrix.Color888(4,4,4));
-matrix.drawPixel(2, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 13, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 14, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 15, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 16, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 17, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 18, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 19, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 20, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 20, matrix.Color888(4,4,4));
-matrix.drawPixel(2, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 21, matrix.Color888(4,4,4));
-matrix.drawPixel(29, 21, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(4, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(27, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(25, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(29, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(0, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(6, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(6, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(25, 25, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(0, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 26, matrix.Color888(4,4,4));
+// Non-blocking disc bounce animation
+void discBounceStep() {
+  static int row = 0;
+  static int direction = 1;
+
+  matrix.fillRect(0, row, 32, 5, matrix.Color333(7, 0, 7));
+  if (direction == 1 && row > 0) {
+    matrix.fillRect(0, row - 1, 32, 1, matrix.Color333(0, 0, 0));
+  } else if (direction == -1 && row < 27) {
+    matrix.fillRect(0, row + 5, 32, 1, matrix.Color333(0, 0, 0));
+  }
+
+  row += direction;
+  if (row >= 27) direction = -1;
+  if (row <= 0) direction = 1;
 }
 
-void frame3(){
-matrix.drawPixel(1, 4, matrix.Color888(2,2,2));
-matrix.drawPixel(5, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(30, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(7, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(24, 5, matrix.Color888(11,73,192));
-matrix.drawPixel(30, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 6, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 6, matrix.Color888(11,73,192));
-matrix.drawPixel(2, 7, matrix.Color888(4,4,4));
-matrix.drawPixel(6, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(25, 7, matrix.Color888(11,73,192));
-matrix.drawPixel(29, 7, matrix.Color888(4,4,4));
-matrix.drawPixel(3, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 22, matrix.Color888(11,73,192));
-matrix.drawPixel(26, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 22, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(6, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(25, 23, matrix.Color888(168,59,44));
-matrix.drawPixel(29, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(29, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(1, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(6, 25, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(1, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 26, matrix.Color888(3,3,3));
+// Non-blocking circle bounce animation
+void circleBounceStep() {
+  static int row = 0;
+  static int direction = 1;
+
+  matrix.fillCircle(15, row, 5, matrix.Color333(0, 7, 0));
+  if (direction == 1 && row > 0) {
+    matrix.drawCircle(15, row - 1, 5, matrix.Color333(0, 0, 0));
+  } else if (direction == -1 && row < 30) {
+    matrix.drawCircle(15, row + 1, 5, matrix.Color333(0, 0, 0));
+  }
+
+  row += direction;
+  if (row >= 30) direction = -1;
+  if (row <= 0) direction = 1;
 }
 
-void frame4(){
-matrix.drawPixel(5, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(7, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(24, 5, matrix.Color888(168,59,44));
-matrix.drawPixel(2, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(7, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(6, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(25, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(26, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 22, matrix.Color888(12,74,193));
-matrix.drawPixel(5, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(26, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(28, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 23, matrix.Color888(2,2,2));
-matrix.drawPixel(6, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(28, 23, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 24, matrix.Color888(13,74,193));
-matrix.drawPixel(7, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(24, 24, matrix.Color888(168,59,44));
-matrix.drawPixel(29, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(29, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 26, matrix.Color888(169,60,45));
-matrix.drawPixel(4, 26, matrix.Color888(11,73,192));
-matrix.drawPixel(27, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 26, matrix.Color888(12,73,193));
-}
+// Function to update the cube animation in a non-blocking manner
+void cubeUpdate() {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousAnimationTime >= animationInterval) {
+        previousAnimationTime = currentMillis;
 
-void frame5(){
-matrix.drawPixel(2, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(6, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(29, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(7, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(24, 6, matrix.Color888(168,59,44));
-matrix.drawPixel(3, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 8, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 23, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(28, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(2, 24, matrix.Color888(4,4,4));
-matrix.drawPixel(7, 24, matrix.Color888(168,59,43));
-matrix.drawPixel(28, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(7, 25, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(26, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 26, matrix.Color888(3,3,3));
-}
-
-void frame6(){
-matrix.drawPixel(26, 4, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 6, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(4, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(6, 22, matrix.Color888(11,73,192));
-matrix.drawPixel(25, 22, matrix.Color888(12,74,193));
-matrix.drawPixel(27, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(7, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(7, 25, matrix.Color888(168,60,44));
-}
-
-void frame7(){
-matrix.drawPixel(25, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 8, matrix.Color888(11,73,192));
-matrix.drawPixel(27, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(4, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(28, 25, matrix.Color888(11,73,192));
-matrix.drawPixel(3, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(4, 26, matrix.Color888(168,59,43));
-matrix.drawPixel(26, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 26, matrix.Color888(12,74,193));
-}
-
-void frame8(){
-matrix.drawPixel(25, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(23, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(24, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(6, 22, matrix.Color888(168,59,44));
-matrix.drawPixel(7, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(27, 23, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 24, matrix.Color888(2,2,2));
-matrix.drawPixel(28, 25, matrix.Color888(3,3,3));
-}
-
-void frame9(){
-matrix.drawPixel(6, 4, matrix.Color888(168,60,44));
-matrix.drawPixel(23, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(27, 7, matrix.Color888(12,73,192));
-matrix.drawPixel(23, 24, matrix.Color888(12,74,193));
-}
-
-void frame10(){
-matrix.drawPixel(23, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(27, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(23, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 25, matrix.Color888(11,73,192));
-}
-
-void frame11(){
-matrix.drawPixel(3, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(27, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(28, 25, matrix.Color888(168,60,44));
-matrix.drawPixel(4, 26, matrix.Color888(11,73,192));
-matrix.drawPixel(28, 26, matrix.Color888(169,60,44));
-}
-
-void frame12(){
-matrix.drawPixel(6, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(26, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(23, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(4, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(4, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(25, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(24, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(28, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(7, 25, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 26, matrix.Color888(169,60,45));
-}
-
-void frame13(){
-matrix.drawPixel(2, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(7, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 6, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(6, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(5, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(6, 22, matrix.Color888(11,73,192));
-matrix.drawPixel(27, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 23, matrix.Color888(12,73,192));
-matrix.drawPixel(7, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(3, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(28, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(26, 26, matrix.Color888(12,73,193));
-}
-
-void frame14(){
-matrix.drawPixel(2, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 5, matrix.Color888(12,74,193));
-matrix.drawPixel(7, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(6, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 7, matrix.Color888(12,73,192));
-matrix.drawPixel(27, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(6, 22, matrix.Color888(2,2,2));
-matrix.drawPixel(26, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(7, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(7, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(4, 26, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 26, matrix.Color888(12,73,193));
-}
-
-void frame15(){
-matrix.drawPixel(2, 3, matrix.Color888(12,73,192));
-matrix.drawPixel(1, 4, matrix.Color888(11,73,192));
-matrix.drawPixel(6, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(29, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(7, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(24, 5, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 5, matrix.Color888(169,60,45));
-matrix.drawPixel(2, 6, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 6, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 8, matrix.Color888(12,73,192));
-matrix.drawPixel(3, 22, matrix.Color888(169,60,45));
-matrix.drawPixel(26, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(25, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(2, 24, matrix.Color888(169,61,45));
-matrix.drawPixel(7, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(24, 24, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(24, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(29, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 26, matrix.Color888(169,60,44));
-}
-
-void frame16(){
-matrix.drawPixel(1, 4, matrix.Color888(168,60,44));
-matrix.drawPixel(5, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(27, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(7, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 5, matrix.Color888(11,73,192));
-matrix.drawPixel(1, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(6, 6, matrix.Color888(11,73,192));
-matrix.drawPixel(24, 6, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(2, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(5, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(25, 7, matrix.Color888(11,73,192));
-matrix.drawPixel(29, 7, matrix.Color888(169,61,45));
-matrix.drawPixel(4, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(26, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(2, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(5, 22, matrix.Color888(11,73,192));
-matrix.drawPixel(27, 22, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(6, 23, matrix.Color888(11,73,192));
-matrix.drawPixel(25, 23, matrix.Color888(2,2,2));
-matrix.drawPixel(29, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(7, 24, matrix.Color888(2,2,2));
-matrix.drawPixel(1, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(6, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(24, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(3, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(30, 26, matrix.Color888(169,60,44));
-}
-
-void frame17(){
-matrix.drawPixel(1, 3, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 3, matrix.Color888(3,3,3));
-matrix.drawPixel(0, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(28, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(31, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(0, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(6, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(25, 5, matrix.Color888(12,74,193));
-matrix.drawPixel(30, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(1, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(6, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 6, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 7, matrix.Color888(12,73,193));
-matrix.drawPixel(1, 8, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 8, matrix.Color888(168,59,43));
-matrix.drawPixel(1, 9, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 10, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 11, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 12, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 12, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 13, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 13, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 14, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 15, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 15, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 16, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 16, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 17, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 18, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 19, matrix.Color888(12,73,192));
-matrix.drawPixel(2, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 20, matrix.Color888(12,74,193));
-matrix.drawPixel(2, 20, matrix.Color888(168,60,44));
-matrix.drawPixel(29, 20, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 21, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 21, matrix.Color888(169,60,44));
-matrix.drawPixel(29, 21, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 22, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(5, 22, matrix.Color888(2,2,2));
-matrix.drawPixel(27, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 22, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 23, matrix.Color888(168,60,44));
-matrix.drawPixel(6, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(26, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(30, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(1, 24, matrix.Color888(168,60,44));
-matrix.drawPixel(6, 24, matrix.Color888(12,73,192));
-matrix.drawPixel(25, 24, matrix.Color888(11,73,192));
-matrix.drawPixel(30, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 25, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(25, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 25, matrix.Color888(169,61,45));
-matrix.drawPixel(0, 26, matrix.Color888(12,73,193));
-matrix.drawPixel(2, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 26, matrix.Color888(13,74,193));
-}
-
-void frame18(){
-matrix.drawPixel(0, 3, matrix.Color888(12,73,192));
-matrix.drawPixel(1, 3, matrix.Color888(3,3,3));
-matrix.drawPixel(4, 4, matrix.Color888(12,73,192));
-matrix.drawPixel(5, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(6, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 5, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(25, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(31, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 7, matrix.Color888(169,60,45));
-matrix.drawPixel(4, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(26, 7, matrix.Color888(12,74,193));
-matrix.drawPixel(30, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 8, matrix.Color888(12,73,193));
-matrix.drawPixel(27, 8, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 8, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 8, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 9, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 9, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 9, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 9, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 10, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 10, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 10, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 11, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 11, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 11, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 11, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 12, matrix.Color888(169,60,45));
-matrix.drawPixel(1, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 12, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 12, matrix.Color888(168,59,43));
-matrix.drawPixel(30, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 12, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 13, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 13, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 13, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(30, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(31, 13, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 14, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 14, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 14, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 14, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 14, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 15, matrix.Color888(169,60,45));
-matrix.drawPixel(3, 15, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 15, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 16, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 16, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 16, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 17, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 17, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 17, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 17, matrix.Color888(168,59,44));
-matrix.drawPixel(31, 17, matrix.Color888(168,60,44));
-matrix.drawPixel(0, 18, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 18, matrix.Color888(12,73,193));
-matrix.drawPixel(28, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 18, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 19, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 19, matrix.Color888(12,73,192));
-matrix.drawPixel(28, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 19, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 19, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 20, matrix.Color888(169,61,45));
-matrix.drawPixel(1, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 20, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(30, 20, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 20, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 21, matrix.Color888(168,60,44));
-matrix.drawPixel(1, 21, matrix.Color888(169,60,44));
-matrix.drawPixel(3, 21, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 21, matrix.Color888(169,61,45));
-matrix.drawPixel(30, 21, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 21, matrix.Color888(169,61,45));
-matrix.drawPixel(0, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 22, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 22, matrix.Color888(169,60,45));
-matrix.drawPixel(31, 22, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(30, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(31, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(0, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(6, 24, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 24, matrix.Color888(2,2,2));
-matrix.drawPixel(31, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 25, matrix.Color888(3,3,3));
-matrix.drawPixel(25, 25, matrix.Color888(4,4,4));
-matrix.drawPixel(1, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(28, 26, matrix.Color888(12,74,193));
-matrix.drawPixel(31, 26, matrix.Color888(169,61,45));
-}
-
-void frame19(){
-matrix.drawPixel(0, 3, matrix.Color888(3,3,3));
-matrix.drawPixel(3, 4, matrix.Color888(12,74,193));
-matrix.drawPixel(4, 4, matrix.Color888(3,3,3));
-matrix.drawPixel(5, 5, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 5, matrix.Color888(12,73,192));
-matrix.drawPixel(5, 6, matrix.Color888(3,3,3));
-matrix.drawPixel(26, 6, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 7, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 7, matrix.Color888(12,73,192));
-matrix.drawPixel(5, 23, matrix.Color888(3,3,3));
-matrix.drawPixel(27, 23, matrix.Color888(12,73,193));
-matrix.drawPixel(5, 24, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 24, matrix.Color888(12,73,193));
-matrix.drawPixel(26, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(28, 26, matrix.Color888(3,3,3));
-matrix.drawPixel(29, 26, matrix.Color888(12,73,193));
-}
-
-void frame20(){
-matrix.drawPixel(28, 4, matrix.Color888(12,73,193));
-matrix.drawPixel(29, 4, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 5, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 5, matrix.Color888(168,60,44));
-matrix.drawPixel(5, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 6, matrix.Color888(169,60,44));
-matrix.drawPixel(4, 7, matrix.Color888(169,60,44));
-matrix.drawPixel(27, 7, matrix.Color888(168,60,44));
-matrix.drawPixel(3, 22, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 23, matrix.Color888(12,74,193));
-matrix.drawPixel(27, 23, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(26, 24, matrix.Color888(169,60,44));
-matrix.drawPixel(5, 25, matrix.Color888(12,74,193));
-matrix.drawPixel(26, 25, matrix.Color888(169,60,45));
-matrix.drawPixel(0, 26, matrix.Color888(169,60,44));
-matrix.drawPixel(1, 26, matrix.Color888(12,74,193));
+        // Call the current frame function
+        switch (currentFrame) {
+            case 0:
+                frame0(matrix);
+                break;
+            case 1:
+                frame1(matrix);
+                break;
+            case 2:
+                frame2(matrix);
+                break;
+            case 3:
+                frame3(matrix);
+                break;
+            case 4:
+                frame4(matrix);
+                break;
+            case 5:
+                frame5(matrix);
+                break;
+            case 6:
+                frame6(matrix);
+                break;
+            case 7:
+                frame7(matrix);
+                break;
+            case 8:
+                frame8(matrix);
+                break;
+            case 9:
+                frame9(matrix);
+                break;
+            case 10:
+                frame10(matrix);
+                break;
+            case 11:
+                frame11(matrix);
+                break;
+            case 12:
+                frame12(matrix);
+                break;
+            case 13:
+                frame13(matrix);
+                break;
+            case 14:
+                frame14(matrix);
+                break;
+            case 15:
+                frame15(matrix);
+                break;
+            case 16:
+                frame16(matrix);
+                break;
+            case 17:
+                frame17(matrix);
+                break;
+            case 18:
+                frame18(matrix);
+                break;
+            case 19:
+                frame19(matrix);
+                break;
+            case 20:
+                frame20(matrix);
+                break;
+            default:
+                currentFrame = -1;
+                break;
+        }
+        currentFrame++;
+        if (currentFrame > 20) {
+            currentFrame = 0;
+        }
+    }
 }

@@ -1,10 +1,10 @@
-// Main RGB Matrix Animation | Alex Mackimmie & Cole Vanderlaan | Last Updated 2024-10-24
+// Main RGB Matrix Animation | Alex Mackimmie & Cole Vanderlaan | Last Updated 11-13-2024
 
 // Include the RGB Matrix Panel Library
 #include <RGBmatrixPanel.h>
 
 // Define the RGB Matrix Panel Pins
-#define CLK 11
+#define CLK A4
 #define OE   9
 #define LAT 10
 #define A   A0
@@ -97,7 +97,7 @@ void startup() {
     matrix.print('C');
     delay(100);
   }
-
+  matrix.fillScreen(matrix.Color333(0, 0, 0));
 }
 
 // Bounce the disc
