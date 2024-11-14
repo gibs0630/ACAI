@@ -8,11 +8,11 @@
   | Airlift Lite board with a 32x32 RGB matrix panel availible on sparkfruit. The backup folder of this
   | project contains the original code that was run on an Arduino Uno without wifi capabilties.
   | ===================================================================================================
-  |               _      ___    _     _____ 
-  |              /_\    / __\  /_\    \_   \
-  |             //_\\  / /    //_\\    / /\/
-  |            /  _  \/ /___ /  _  \/\/ /_   - Alex Mackimmie, Cole Vanderlaan, Andrew Gibson, Ian Finnigan
-  |            \_/ \_/\____/ \_/ \_/\____/   - Last Updated 11-13-2024
+  |        _      ___    _     _____ 
+  |       /_\    / __\  /_\    \_   \
+  |      //_\\  / /    //_\\    / /\/
+  |     /  _  \/ /___ /  _  \/\/ /_   - Alex Mackimmie, Cole Vanderlaan, Andrew Gibson, Ian Finnigan
+  |     \_/ \_/\____/ \_/ \_/\____/   - 2024
   |
   | ===================================================================================================
 */
@@ -386,82 +386,86 @@ void circleBounceStep() {
 
 // Function to update the cube animation in a non-blocking manner
 void cubeUpdate() {
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousAnimationTime >= animationInterval) {
-        previousAnimationTime = currentMillis;
+  // Introduce a separate timing variable for cubeUpdate
+  static unsigned long cubePreviousAnimationTime = 0;
+  const long cubeAnimationInterval = 20; // Adjust as needed
 
-        // Call the current frame function
-        switch (currentFrame) {
-            case 0:
-                frame0(matrix);
-                break;
-            case 1:
-                frame1(matrix);
-                break;
-            case 2:
-                frame2(matrix);
-                break;
-            case 3:
-                frame3(matrix);
-                break;
-            case 4:
-                frame4(matrix);
-                break;
-            case 5:
-                frame5(matrix);
-                break;
-            case 6:
-                frame6(matrix);
-                break;
-            case 7:
-                frame7(matrix);
-                break;
-            case 8:
-                frame8(matrix);
-                break;
-            case 9:
-                frame9(matrix);
-                break;
-            case 10:
-                frame10(matrix);
-                break;
-            case 11:
-                frame11(matrix);
-                break;
-            case 12:
-                frame12(matrix);
-                break;
-            case 13:
-                frame13(matrix);
-                break;
-            case 14:
-                frame14(matrix);
-                break;
-            case 15:
-                frame15(matrix);
-                break;
-            case 16:
-                frame16(matrix);
-                break;
-            case 17:
-                frame17(matrix);
-                break;
-            case 18:
-                frame18(matrix);
-                break;
-            case 19:
-                frame19(matrix);
-                break;
-            case 20:
-                frame20(matrix);
-                break;
-            default:
-                currentFrame = -1;
-                break;
-        }
-        currentFrame++;
-        if (currentFrame > 20) {
-            currentFrame = 0;
-        }
+  unsigned long currentMillis = millis();
+  if (currentMillis - cubePreviousAnimationTime >= cubeAnimationInterval) {
+    cubePreviousAnimationTime = currentMillis;
+
+    // Call the current frame function
+    switch (currentFrame) {
+      case 0:
+        frame0(matrix);
+        break;
+      case 1:
+        frame1(matrix);
+        break;
+      case 2:
+        frame2(matrix);
+        break;
+      case 3:
+        frame3(matrix);
+        break;
+      case 4:
+        frame4(matrix);
+        break;
+      case 5:
+        frame5(matrix);
+        break;
+      case 6:
+        frame6(matrix);
+        break;
+      case 7:
+        frame7(matrix);
+        break;
+      case 8:
+        frame8(matrix);
+        break;
+      case 9:
+        frame9(matrix);
+        break;
+      case 10:
+        frame10(matrix);
+        break;
+      case 11:
+        frame11(matrix);
+        break;
+      case 12:
+        frame12(matrix);
+        break;
+      case 13:
+        frame13(matrix);
+        break;
+      case 14:
+        frame14(matrix);
+        break;
+      case 15:
+        frame15(matrix);
+        break;
+      case 16:
+        frame16(matrix);
+        break;
+      case 17:
+        frame17(matrix);
+        break;
+      case 18:
+        frame18(matrix);
+        break;
+      case 19:
+        frame19(matrix);
+        break;
+      case 20:
+        frame20(matrix);
+        break;
+      default:
+        currentFrame = 0;
+        break;
     }
+    currentFrame++;
+    if (currentFrame > 20) {
+      currentFrame = 0;
+    }
+  }
 }
