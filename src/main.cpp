@@ -21,7 +21,10 @@
 #include <RGBmatrixPanel.h>
 #include <WiFiNINA.h>
 #include <SPI.h>
-#include "frames.h"
+#include "frames_cube.h"
+#include "frames_blossom.h"
+#include <stdio.h>
+
 
 // Define the RGB Matrix Panel Pins
 #define CLK A4
@@ -32,6 +35,8 @@
 #define C   A2
 #define D   A3
 
+#define IR 12
+
 // RGB Matrix Panel Global Variable
 RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false);
 
@@ -41,7 +46,9 @@ void circleBounce();
 void discBounceStep();
 void circleBounceStep();
 void cubeUpdate();
+void blossomUpdate();
 void startup();
+void rpsUpdate();
 
 // Define buffer sizes
 #define HEADER_BUFFER_SIZE 512
@@ -49,8 +56,8 @@ void startup();
 #define STATUS_BUFFER_SIZE 64
 
 // Replace with your network credentials
-const char* ssid = "Alex's iPhone";
-const char* password = "gooberville";
+const char* ssid = "32x32xRev_10.0.0.1";
+// const char* password = "GoVandalsGoVandals!";
 int keyIndex = 0; // your network key index
 int status = WL_IDLE_STATUS; // the WiFi status
 
@@ -73,7 +80,16 @@ WiFiClient client;
 // Variables for non-blocking animations
 unsigned long previousAnimationTime = 0;
 const long animationInterval = 20; // Adjust as needed
+ 
 int currentFrame = 0;
+
+long genDelay = animationInterval;
+long cubeDelay = 1; //cube delay in ms
+long msPerRev; //number of milliseconds per rev
+
+long mDiff = 0;
+
+float rps; //rotations per second
 
 // Code to run on startup of the system
 void setup() {
@@ -82,15 +98,19 @@ void setup() {
   //  ; // wait for serial port to connect. Needed for native USB port only
   //}
 
+  //set up IR sensor
+  pinMode(IR, INPUT);
+
   // Connect to Wi-Fi
   Serial.print("Connecting to ");
   Serial.println(ssid);
-  WiFi.begin(ssid, password);
+  WiFi.config(IPAddress(10, 0, 0, 1));
+  WiFi.beginAP(ssid);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(".");
-  }
+  // while (WiFi.status() != WL_CONNECTED) {
+  //   delay(1000);
+  //   Serial.print(".");
+  // }
 
   Serial.println("");
   Serial.println("WiFi connected.");
@@ -107,12 +127,12 @@ void setup() {
 // MAIN PROGRAM LOOP
 void loop() {
   // Handle Wi-Fi reconnection
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println(F("WiFi disconnected. Attempting reconnection..."));
-    WiFi.begin(ssid, password);
-    delay(1000); // Small delay to allow reconnection
-    return; // Skip rest of loop to allow reconnection
-  }
+  // if (WiFi.status() != WL_CONNECTED) {
+  //   Serial.println(F("WiFi disconnected. Attempting reconnection..."));
+  //   WiFi.begin(ssid, password);
+  //   delay(1000); // Small delay to allow reconnection
+  //   return; // Skip rest of loop to allow reconnection
+  // }
 
   // Non-blocking client handling
   WiFiClient client = server.available();
@@ -190,7 +210,26 @@ void loop() {
               client.println(F("<button class=\"button\" onclick=\"location.href='/discBounce'\">Disc Bounce</button>"));
               client.println(F("<button class=\"button\" onclick=\"location.href='/circleBounce'\">Circle Bounce</button>"));
               client.println(F("<button class=\"button\" onclick=\"location.href='/cubeUpdate'\">Cube Update</button>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/blossomUpdate'\">Blossom Update</button>"));
+              client.println(F("<button class=\"button\" onclick=\"location.href='/rpsUpdate'\">RPS Update</button>"));
               client.println(F("<button class=\"button\" onclick=\"location.href='/stop'\">Stop</button>"));
+
+              client.print(F("<b>RPS: "));
+              client.print(rps);
+              client.print(F("</b>\n"));
+
+              client.print(F("<b>msPerRev: "));
+              client.print(msPerRev);
+              client.print(F("</b>\n"));              
+              
+              client.print(F("<b>cubeDelay: "));
+              client.print(cubeDelay);
+              client.print(F("</b>\n"));
+
+              client.print(F("<b>mDiff: "));
+              client.print(mDiff);
+              client.print(F("</b>\n"));
+
               client.println(F("<div id=\"terminal\"></div>"));
               client.println(F("<script>"));
               client.println(F("setInterval(function() {"));
@@ -228,9 +267,15 @@ void loop() {
         } else if (strstr(header, "GET /cubeUpdate") != NULL) {
           strncpy(currentFunction, "cubeUpdate", sizeof(currentFunction) - 1);
           strncpy(statusMessage, "Running cubeUpdate animation", STATUS_BUFFER_SIZE - 1);
+        } else if (strstr(header, "GET /blossomUpdate") != NULL) {
+          strncpy(currentFunction, "blossomUpdate", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Running blossomUpdate animation", STATUS_BUFFER_SIZE - 1);
         } else if (strstr(header, "GET /stop") != NULL) {
           strncpy(currentFunction, "stop", sizeof(currentFunction) - 1);
           strncpy(statusMessage, "Stopped animations", STATUS_BUFFER_SIZE - 1);
+        } else if (strstr(header, "GET /rpsUpdate") != NULL) {
+          strncpy(currentFunction, "rpsUpdate", sizeof(currentFunction) - 1);
+          strncpy(statusMessage, "Running RPS Update Calculations", STATUS_BUFFER_SIZE - 1);
         }
       }
     }
@@ -239,16 +284,31 @@ void loop() {
     Serial.println();
   }
 
-  if (millis() - previousAnimationTime >= animationInterval) {
+  if (millis() - previousAnimationTime >= genDelay) {
+
+    mDiff = millis() - previousAnimationTime;
     previousAnimationTime = millis();
+    Serial.print("mDiff = ");
+    Serial.print(mDiff);
+    Serial.println("--------------");
+
     if (strcmp(currentFunction, "discBounce") == 0) {
+      genDelay = animationInterval;
       discBounceStep();
     } else if (strcmp(currentFunction, "circleBounce") == 0) {
+      genDelay = animationInterval;
       circleBounceStep();
     } else if (strcmp(currentFunction, "cubeUpdate") == 0) {
+      genDelay = cubeDelay;
       cubeUpdate();
+    } else if (strcmp(currentFunction, "blossomUpdate") == 0) {
+      blossomUpdate();
     } else if (strcmp(currentFunction, "stop") == 0) {
+      genDelay = animationInterval;
       matrix.fillScreen(matrix.Color333(0, 0, 0)); // Clear screen
+    } else if (strcmp(currentFunction, "rpsUpdate") == 0) {
+      genDelay = animationInterval;
+      rpsUpdate(); // Clear screen
     }
   }
 }
@@ -306,6 +366,46 @@ void startup() {
     delay(100);
   }
   matrix.fillScreen(matrix.Color333(0, 0, 0));
+}
+
+void rpsUpdate(){
+  bool onOff = false;
+  uint8_t max = 0xff;
+  uint8_t min = 0;
+  long t1;
+  long t2;
+  float temp;
+  
+  //get first positive edge, Debounce it, and Save
+  while((max != 0)){
+      max = max << 1;
+      onOff = digitalRead(IR);
+      max = max | onOff;
+  }
+  t1 = millis();
+
+  //wait for pulse to end & debounce end
+  min = 0;
+  while(min != 0xff){
+      min = min << 1;
+      onOff = digitalRead(IR);
+      min = min | onOff;
+  }
+
+  //get second pos edge, debounce, and save
+  max = 0xff;
+  while((max != 0)){
+      max = max << 1;
+      onOff = digitalRead(IR);
+      max = max | onOff;
+  }
+  t2 = millis();
+
+  msPerRev = t2 - t1;
+  //temp = (float)msPerRev / 1000;
+  //rps = 1 / temp;
+  rps = 1000/(float)msPerRev;
+  cubeDelay = msPerRev / 40;
 }
 
 // Bounce the disc - Deprecated with web server implementation
@@ -388,7 +488,7 @@ void circleBounceStep() {
 void cubeUpdate() {
   // Introduce a separate timing variable for cubeUpdate
   static unsigned long cubePreviousAnimationTime = 0;
-  const long cubeAnimationInterval = 20; // Adjust as needed
+  long cubeAnimationInterval = cubeDelay; // Adjust as needed
 
   unsigned long currentMillis = millis();
   if (currentMillis - cubePreviousAnimationTime >= cubeAnimationInterval) {
@@ -465,6 +565,119 @@ void cubeUpdate() {
     }
     currentFrame++;
     if (currentFrame > 20) {
+      currentFrame = 0;
+    }
+  }
+}
+
+// Function to update the blossom animation in a non-blocking manner
+void blossomUpdate() {
+  // Introduce a separate timing variable for cubeUpdate
+  static unsigned long blossomPreviousAnimationTime = 0;
+  const long blossomAnimationInterval = 20; // Adjust as needed
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - blossomPreviousAnimationTime >= blossomAnimationInterval) {
+    blossomPreviousAnimationTime = currentMillis;
+
+    // Call the current frame function
+    switch (currentFrame) {
+      case 0:
+        blossomframe0(matrix);
+        break;
+      case 1:
+        blossomframe1(matrix);
+        break;
+      case 2:
+        blossomframe2(matrix);
+        break;
+      case 3:
+        blossomframe3(matrix);
+        break;
+      case 4:
+        blossomframe4(matrix);
+        break;
+      case 5:
+        blossomframe5(matrix);
+        break;
+      case 6:
+        blossomframe6(matrix);
+        break;
+      case 7:
+        blossomframe7(matrix);
+        break;
+      case 8:
+        blossomframe8(matrix);
+        break;
+      case 9:
+        blossomframe9(matrix);
+        break;
+      case 10:
+        blossomframe10(matrix);
+        break;
+      case 11:
+        blossomframe11(matrix);
+        break;
+      case 12:
+        blossomframe12(matrix);
+        break;
+      case 13:
+        blossomframe13(matrix);
+        break;
+      case 14:
+        blossomframe14(matrix);
+        break;
+      case 15:
+        blossomframe15(matrix);
+        break;
+      case 16:
+        blossomframe16(matrix);
+        break;
+      case 17:
+        blossomframe17(matrix);
+        break;
+      case 18:
+        blossomframe18(matrix);
+        break;
+      case 19:
+        blossomframe19(matrix);
+        break;
+      case 20:
+        blossomframe20(matrix);
+        break;
+      case 21:
+        blossomframe21(matrix);
+        break;
+      case 22:
+        blossomframe22(matrix);
+        break;
+      case 23:
+        blossomframe23(matrix);
+        break;
+      case 24:
+        blossomframe24(matrix);
+        break;
+      case 25:
+        blossomframe25(matrix);
+        break;
+      case 26:
+        blossomframe26(matrix);
+        break;
+      case 27:
+        blossomframe27(matrix);
+        break;
+      case 28:
+        blossomframe28(matrix);
+        break;
+      case 29:
+        blossomframe29(matrix);
+        break;
+      default:
+        currentFrame = 0;
+        break;
+    }
+    currentFrame++;
+    if (currentFrame > 30) {
       currentFrame = 0;
     }
   }
